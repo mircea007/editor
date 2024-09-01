@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
 
 #include <ncurses.h>
 
@@ -11,8 +12,11 @@
 
 // draw screen and at the end flush curses internal buffers to the screen
 
-char buf[1000];
+#define FILE_BUFSIZ 20000
+
+char buf[FILE_BUFSIZ + 1]; // extra space for '\0'
 int bufpoz = 0;
+int cursor = 0;
 
 bool editor_exit = false;
 
@@ -24,23 +28,51 @@ void draw() {
   getmaxyx( stdscr, height, width );
 
   // process new key events
-  char ch;
+  int ch;
   char bigboss = '?';
   //int iter = 0;
   while( /* iter < 10 && */ (ch = getch()) != EOF ) {
     //iter++;
 
-    if( ch == 'q' )
-      editor_exit = true;
-    
-    if( ch == KEY_BACKSPACE || ch == 127 ){
-      if( bufpoz >= 0 )
+    switch( ch ) {
+    case KEY_BACKSPACE:
+    case 127:
+      if( cursor > 0 ){
+        cursor--;
+        memmove( buf + cursor, buf + cursor + 1, (bufpoz + 1) - (cursor + 1) );
         bufpoz--;
-    }else{
-      if( bufpoz < 1000 )
-        buf[bufpoz++] = ch;
+      }
+      break;
+
+    case KEY_UP:
+      break;
+
+    case KEY_DOWN:
+      break;
+
+    case KEY_LEFT:
+      if( cursor > 0 )
+        cursor--;
+      break;
+
+    case KEY_RIGHT:
+      if( cursor < bufpoz )
+        cursor++;
+      break;
+      
+    case '\e':
+      //editor_exit = true;
+      break;
+
+    default:
+      if( bufpoz < FILE_BUFSIZ ){
+        memmove( buf + cursor + 1, buf + cursor, (bufpoz + 1) - (cursor) );
+        buf[cursor++] = ch;
+        bufpoz++;
+      }
       bigboss = ch;
       //exit( 1 ); // sa vedem daca se ajunge aici
+      break;
     }
   }
 
@@ -53,28 +85,40 @@ void draw() {
 
   buf[bufpoz] = '\0';
   move( 1, 0 );
-  char *ptr = buf;
-  while( *ptr )
-    addch( *(ptr++) );
+
+  for( int i = 0; i < cursor; i++ )
+    addch( buf[i] );
+
+  int cursorx, cursory;
+  getyx( stdscr, cursorx, cursory );
+
+  for( int i = cursor; i < bufpoz; i++ )
+    addch( buf[i] );
+
+  move( cursorx, cursory );
 
   refresh();
 }
 
 int main( int argc, char **argv ) {
   initscr();
-  cbreak(); // change to raw() when we dont want Ctrl+C, Ctrl+D to do anything
   noecho(); // we don't want to not be able to control what is on the screen
 
-  timeout( 0 ); // non-blocking read (getch())
+  // change to raw() when we dont want Ctrl+C, Ctrl+D to do anything
+  cbreak();
+  //raw();
 
+  timeout( 0 ); // non-blocking read (getch())
+  keypad( stdscr, true );
+  
   do{
     draw();
-    usleep( 1000 * 20 );
+    usleep( 1000 * 20 ); // 20ms delay ~ 50fps
   }while( !editor_exit );
 
   endwin();
 
-  buf[bufpoz] = '\0';
-  printf( "%s\n", buf );
+  // buf[bufpoz] = '\0';
+  // printf( "%s\n", buf );
   return 0;
 }
