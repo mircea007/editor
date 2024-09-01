@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := bin/main
+
 bin:
 	mkdir bin
 
