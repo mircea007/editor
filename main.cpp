@@ -6,13 +6,9 @@
 
 #include <ncurses.h>
 
-#define false 0
-#define true 1
-#define bool int
-
 // draw screen and at the end flush curses internal buffers to the screen
 
-#define FILE_BUFSIZ 20000
+const int FILE_BUFSIZ = 20000;
 
 char buf[FILE_BUFSIZ + 1]; // extra space for '\0'
 int bufpoz = 0;
