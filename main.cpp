@@ -46,6 +46,11 @@ template<typename T, const int HARD_LIMIT> struct LimitVector {
     //assert( 0 <= idx < siz );
     return mem[idx];
   }
+
+  T& back() {
+    //assert( siz > 0 );
+    return mem[siz - 1];
+  }
   
   inline int size() { return siz; }
   inline bool empty() { return !siz; }
@@ -148,8 +153,58 @@ struct EditBuffer {
   int cursor_line;
   int cursor_poz;
 
-  EditBuffer(): lines(1), cursor_line(0), cursor_poz(0) { lines[0] = Line(); }
-  ~EditBuffer() {}
+  char *output;
+
+  EditBuffer(): lines(1), cursor_line(0), cursor_poz(0), output(nullptr) { lines[0] = Line(); }
+  EditBuffer( const char *filepath ): lines(), cursor_line(0), cursor_poz(0) {
+    int siz = 0;
+    while( filepath[siz] )
+      siz++;
+    
+    // copy to output
+    output = new char[siz + 1];
+    for( int i = 0; i <= siz; i++ )
+      output[i] = filepath[i];
+
+    lines.push_back( Line() );
+    
+    // check if file allready exists
+    if( access( output, F_OK ) == 0 ){ // belongs to <unistd.h>
+      // file exists, must load into lines[]
+      FILE *fin = fopen( output, "r" );
+      char ch;
+
+      while( (ch = fgetc( fin )) != EOF ){
+        if( ch == '\n' )
+          lines.push_back( Line() );
+        else
+          lines.back().line.push_back( ch );
+      }
+
+      fclose( fin );
+    }
+  }
+
+  void flush() {
+    if( !output )
+      return;
+
+    FILE *fout = fopen( output, "w" );
+    for( int i = 0; i < lines.size(); i++ ){
+      if( i )
+        fputc( '\n', fout );
+
+      for( int j = 0; j < lines[i].size(); j++ )
+        fputc( lines[i].line[j], fout );
+    }
+    fclose( fout );
+  }
+
+  ~EditBuffer() {
+    flush();
+    if( output )
+      delete []output;
+  }
 
   void normalize_cursor() {
     cursor_poz = min( lines[cursor_line].size(), cursor_poz );
@@ -252,56 +307,64 @@ struct EditBuffer {
   }
 };
 
-EditBuffer test_buf;
+EditBuffer *test_buf;
 
-// draw screen and at the end flush curses internal buffers to the screen
+#define ctrl(x) ((x) & 0x1f)
+
 char bigboss = '?';
-void draw() {
-  clear();
-
-  // not in main since window size can change
-  int width, height;
-  getmaxyx( stdscr, height, width );
-
+void handle_io() {
   // process new key events
   int ch;
   //int iter = 0;
-  while( /* iter < 10 && */ (ch = getch()) != EOF ) {
+  while( /* iter < 10 && */ (ch = getch()) != ERR ) {
     //iter++;
 
     switch( ch ) {
     case KEY_BACKSPACE:
     case 127:
-      test_buf.backspace();
+      test_buf->backspace();
       break;
 
     case KEY_UP:
-      test_buf.cursor_up();
+      test_buf->cursor_up();
       break;
 
     case KEY_DOWN:
-      test_buf.cursor_down();
+      test_buf->cursor_down();
       break;
 
     case KEY_LEFT:
-      test_buf.cursor_left();
+      test_buf->cursor_left();
       break;
 
     case KEY_RIGHT:
-      test_buf.cursor_right();
+      test_buf->cursor_right();
       break;
-      
+
+    case ctrl('S'):
+      test_buf->flush();
+      break;
+
+    case ctrl('C'):
     case '\e':
       editor_exit = true;
       break;
 
     default:
-      test_buf.insert_char_cursor( ch );
+      test_buf->insert_char_cursor( ch );
       bigboss = ch;
       break;
     }
   }
+}
 
+// draw screen and at the end flush curses internal buffers to the screen
+void draw() {
+  // not in main since window size can change
+  int width, height;
+  getmaxyx( stdscr, height, width );
+
+  erase(); // clear();
   move( height - 1, 0 );
   printw( "Terminal size: %dx%d (bigboss = %c | %d)\n", height, width, bigboss, int(bigboss) );
 
@@ -309,7 +372,7 @@ void draw() {
   for( int c = 0; c < width; c++ )
     mvaddch( height - 2, c, '-' );
 
-  test_buf.draw( width, height - 2 ); // we don't want the buffer to touch the status line
+  test_buf->draw( width, height - 2 ); // we don't want the buffer to touch the status line
   refresh();
 }
 
@@ -318,16 +381,22 @@ int main( int argc, char **argv ) {
   noecho(); // we don't want to not be able to control what is on the screen
 
   // change to raw() when we dont want Ctrl+C, Ctrl+D to do anything
-  cbreak();
-  //raw();
+  //cbreak();
+  raw();
 
   timeout( 0 ); // non-blocking read (getch())
   keypad( stdscr, true );
 
   // at the end we move the cursor to its position in the buffer
   //curs_set( 0 ); // invisible cursor
+
+  if( argc > 1 )
+    test_buf = new EditBuffer( argv[1] );
+  else
+    test_buf = new EditBuffer();
   
   do{
+    handle_io();
     draw();
     usleep( 1000 * 20 ); // 20ms delay ~ 50fps
   }while( !editor_exit );
@@ -336,5 +405,6 @@ int main( int argc, char **argv ) {
 
   // buf[bufpoz] = '\0';
   // printf( "%s\n", buf );
+  delete test_buf;
   return 0;
 }
