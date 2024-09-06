@@ -153,10 +153,12 @@ struct EditBuffer {
   int cursor_line;
   int cursor_poz;
 
+  int frame_begin; // linia de unde incepe afisarea
+
   char *output;
 
-  EditBuffer(): lines(1), cursor_line(0), cursor_poz(0), output(nullptr) { lines[0] = Line(); }
-  EditBuffer( const char *filepath ): lines(), cursor_line(0), cursor_poz(0) {
+  EditBuffer(): lines(1), cursor_line(0), cursor_poz(0), frame_begin(0), output(nullptr) { lines[0] = Line(); }
+  EditBuffer( const char *filepath ): lines(), cursor_line(0), cursor_poz(0), frame_begin(0) {
     int siz = 0;
     while( filepath[siz] )
       siz++;
@@ -293,17 +295,26 @@ struct EditBuffer {
     cursor_line++;
   }
 
+  void update_frame( int height ) {
+    while( cursor_line < frame_begin )
+      frame_begin = min( 0, frame_begin - height );
+
+    while( frame_begin + height <= cursor_line )
+      frame_begin += height;
+  }
+
   // draws the buffer onto the screen, will add:
   //  - frame start cursor
   //  - frame coordinates (startl, startc, width, height)
   void draw( int width, int height ) {
+    update_frame( height );
     move( 0, 0 );
 
-    int last_line = min( lines.size(), height );
-    for( int i = 0; i < last_line; i++ )
-        lines[i].draw( i, 0, width );
+    int last_line = min( lines.size(), frame_begin + height );
+    for( int i = frame_begin; i < last_line; i++ )
+        lines[i].draw( i - frame_begin, 0, width );
 
-    move( cursor_line, min( lines[cursor_line].size(), cursor_poz ) );
+    move( cursor_line - frame_begin, min( lines[cursor_line].size(), cursor_poz ) );
   }
 };
 
@@ -384,7 +395,7 @@ int main( int argc, char **argv ) {
   //cbreak();
   raw();
 
-  timeout( 0 ); // non-blocking read (getch())
+  timeout( 10 ); // non-blocking read (getch())
   keypad( stdscr, true );
 
   // at the end we move the cursor to its position in the buffer
@@ -398,7 +409,7 @@ int main( int argc, char **argv ) {
   do{
     handle_io();
     draw();
-    usleep( 1000 * 20 ); // 20ms delay ~ 50fps
+    //usleep( 1000 * 20 ); // 20ms delay ~ 50fps
   }while( !editor_exit );
 
   endwin();
